@@ -1,0 +1,65 @@
+- hosts: monitoringserver 
+  become: yes
+
+  vars:
+    gui_user: admin
+    gui_password: admin
+    oAlertmanagerPort: 9093
+    oPrometheusPort: 9090
+    oCAdvisorPort: 8080
+    oNginxAlertmanagerPort: 7003
+    oNginxPrometheusPort: 7002
+    oNginxCAdvisorPort: 7001
+
+  roles :
+    - { role: docker }
+  tasks:
+    - name: Install docker-compose
+      pip: name=docker-compose 
+
+    - name: Repair docker-compose
+      command: pip install --upgrade backports.ssl-match-hostname 
+
+    - meta: flush_handlers
+
+    - name: Git clone monitoring solution
+      git: repo=https://github.com/trickytibo/monitor_microservices dest=/home/cloud/monitoring 
+
+    - name: Install passlib in order to create gui user
+      pip: name=passlib
+
+    - name: Create admin user GUI
+      htpasswd: >
+        path=/home/cloud/monitoring/nginx/htpasswd.users
+        name={{ gui_user }}
+        password={{ gui_password }}
+        crypt_scheme=md5_crypt
+        state=present
+
+    - name: --> Temp <-- Create directory nginx
+      file: path=/home/cloud/monitoring/nginx state=directory mode=0755
+
+    - name: --> Temp <-- Dockerfile for nginx
+      copy: src=templates/Dockerfile dest=/home/cloud/monitoring/nginx/Dockerfile owner=root group=root mode=0644
+
+    - name: --> Temp <-- prometheus.conf for nginx
+      template: src=templates/prometheus.conf.j2 dest=/home/cloud/monitoring/nginx/prometheus.conf owner=root group=root mode=0644
+
+    - name: --> Temp <-- cadvisor.conf for nginx
+      template: src=templates/cadvisor.conf.j2 dest=/home/cloud/monitoring/nginx/cadvisor.conf owner=root group=root mode=0644
+
+    - name: --> Temp <-- alermanager.conf for nginx
+      template: src=templates/alertmanager.conf.j2 dest=/home/cloud/monitoring/nginx/alertmanager.conf owner=root group=root mode=0644
+
+    - name: Build nginx image
+      docker_image: >
+        name=nginxmonitoring
+        path=/home/cloud/monitoring/nginx
+        state=present
+
+    - name: --> Temp <-- Copy new docker_compose.yml
+      copy: src=templates/docker-compose.yml dest=/home/cloud/monitoring/docker-compose.yml owner=root group=root mode=0644 backup=yes
+
+    - name: Docker compose project
+      docker_service: project_src=/home/cloud/monitoring/
+
